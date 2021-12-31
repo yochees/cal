@@ -1,24 +1,32 @@
-import Head from "next/head";
-import Link from "next/link";
-import React from "react";
+import debounce from "lodash/debounce";
+import { GetServerSidePropsContext } from "next";
 import { getCsrfToken } from "next-auth/client";
-import debounce from "lodash.debounce";
+import React, { SyntheticEvent } from "react";
 
-export default function Page({ csrfToken }) {
+import { getSession } from "@lib/auth";
+import { useLocale } from "@lib/hooks/useLocale";
+
+import { EmailField } from "@components/form/fields";
+import { HeadSeo } from "@components/seo/head-seo";
+import Button from "@components/ui/Button";
+
+export default function ForgotPassword({ csrfToken }: { csrfToken: string }) {
+  const { t, i18n } = useLocale();
   const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState(null);
+  const [error, setError] = React.useState<{ message: string } | null>(null);
   const [success, setSuccess] = React.useState(false);
   const [email, setEmail] = React.useState("");
 
-  const handleChange = (e) => {
-    setEmail(e.target.value);
+  const handleChange = (e: SyntheticEvent) => {
+    const target = e.target as typeof e.target & { value: string };
+    setEmail(target.value);
   };
 
-  const submitForgotPasswordRequest = async ({ email }) => {
+  const submitForgotPasswordRequest = async ({ email }: { email: string }) => {
     try {
       const res = await fetch("/api/auth/forgot-password", {
         method: "POST",
-        body: JSON.stringify({ email: email }),
+        body: JSON.stringify({ email: email, language: i18n.language }),
         headers: {
           "Content-Type": "application/json",
         },
@@ -33,7 +41,7 @@ export default function Page({ csrfToken }) {
 
       return json;
     } catch (reason) {
-      setError({ message: "An unexpected error occurred. Try again." });
+      setError({ message: t("unexpected_error_try_again") });
     } finally {
       setLoading(false);
     }
@@ -41,7 +49,7 @@ export default function Page({ csrfToken }) {
 
   const debouncedHandleSubmitPasswordRequest = debounce(submitForgotPasswordRequest, 250);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: SyntheticEvent) => {
     e.preventDefault();
 
     if (!email) {
@@ -62,90 +70,57 @@ export default function Page({ csrfToken }) {
   const Success = () => {
     return (
       <div className="space-y-6">
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Done</h2>
-        <p>Check your email. We sent you a link to reset your password.</p>
+        <h2 className="mt-6 text-3xl font-extrabold text-center text-gray-900">{t("done")}</h2>
+        <p>{t("check_email_reset_password")}</p>
         {error && <p className="text-red-600">{error.message}</p>}
       </div>
     );
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <Head>
-        <title>Forgot Password</title>
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
-
+    <div className="flex flex-col justify-center min-h-screen py-12 bg-gray-50 sm:px-6 lg:px-8">
+      <HeadSeo title={t("forgot_password")} description={t("request_password_reset")} />
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 mx-2 shadow rounded-lg sm:px-10 space-y-6">
+        <div className="px-4 pt-3 pb-8 mx-2 space-y-6 bg-white rounded-lg shadow sm:px-10">
           {success && <Success />}
           {!success && (
             <>
               <div className="space-y-6">
-                <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Forgot Password</h2>
-                <p>
-                  Enter the email address associated with your account and we will send you a link to reset
-                  your password.
-                </p>
+                <h2 className="mt-6 text-3xl font-extrabold text-center text-gray-900 font-cal">
+                  {t("forgot_password")}
+                </h2>
+                <p className="text-sm text-gray-500">{t("reset_instructions")}</p>
                 {error && <p className="text-red-600">{error.message}</p>}
               </div>
               <form className="space-y-6" onSubmit={handleSubmit} action="#">
                 <input name="csrfToken" type="hidden" defaultValue={csrfToken} hidden />
-                <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                    Email address
-                  </label>
-                  <div className="mt-1">
-                    <input
-                      onChange={handleChange}
-                      id="email"
-                      name="email"
-                      type="email"
-                      autoComplete="email"
-                      placeholder="john.doe@example.com"
-                      required
-                      className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    />
-                  </div>
-                </div>
 
-                <div>
-                  <button
+                <EmailField
+                  onChange={handleChange}
+                  id="email"
+                  name="email"
+                  label={t("email_address")}
+                  placeholder="john.doe@example.com"
+                  required
+                />
+                <div className="space-y-2">
+                  <Button
+                    className="justify-center w-full"
                     type="submit"
                     disabled={loading}
-                    className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
-                      loading ? "cursor-not-allowed" : ""
-                    }`}>
-                    {loading && (
-                      <svg
-                        className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24">
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"></circle>
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                    )}
-                    Request Password Reset
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  <Link href="/auth/login">
-                    <button
-                      type="button"
-                      className="w-full flex justify-center py-2 px-4 text-sm font-medium text-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                      Login
-                    </button>
-                  </Link>
+                    aria-label={t("request_password_reset")}
+                    loading={loading}>
+                    {t("request_password_reset")}
+                  </Button>
+
+                  <Button
+                    href="/auth/login"
+                    color="minimal"
+                    role="button"
+                    aria-label={t("login_instead")}
+                    className="justify-center w-full">
+                    {t("login_instead")}
+                  </Button>
                 </div>
               </form>
             </>
@@ -156,8 +131,17 @@ export default function Page({ csrfToken }) {
   );
 }
 
-Page.getInitialProps = async ({ req }) => {
+ForgotPassword.getInitialProps = async (context: GetServerSidePropsContext) => {
+  const { req, res } = context;
+  const session = await getSession({ req });
+
+  if (session) {
+    res.writeHead(302, { Location: "/" });
+    res.end();
+    return;
+  }
+
   return {
-    csrfToken: await getCsrfToken({ req }),
+    csrfToken: await getCsrfToken(context),
   };
 };

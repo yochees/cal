@@ -1,77 +1,212 @@
-import {CogIcon, TrashIcon, UserAddIcon, UsersIcon} from "@heroicons/react/outline";
-import Dropdown from "../ui/Dropdown";
-import {useState} from "react";
+import { ExternalLinkIcon, TrashIcon, LogoutIcon, PencilIcon } from "@heroicons/react/outline";
+import { LinkIcon, DotsHorizontalIcon } from "@heroicons/react/solid";
+import Link from "next/link";
 
-export default function TeamListItem(props) {
+import classNames from "@lib/classNames";
+import { getPlaceholderAvatar } from "@lib/getPlaceholderAvatar";
+import { useLocale } from "@lib/hooks/useLocale";
+import showToast from "@lib/notification";
+import { trpc, inferQueryOutput } from "@lib/trpc";
 
-  const [ team, setTeam ] = useState(props.team);
+import { Dialog, DialogTrigger } from "@components/Dialog";
+import { Tooltip } from "@components/Tooltip";
+import ConfirmationDialogContent from "@components/dialog/ConfirmationDialogContent";
+import Avatar from "@components/ui/Avatar";
+import Button from "@components/ui/Button";
+import Dropdown, {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@components/ui/Dropdown";
 
-  const acceptInvite = () => invitationResponse(true);
-  const declineInvite = () => invitationResponse(false);
+import TeamRole from "./TeamRole";
+import { MembershipRole } from ".prisma/client";
 
-  const invitationResponse = (accept: boolean) => fetch('/api/user/membership', {
-    method: accept ? 'PATCH' : 'DELETE',
-    body: JSON.stringify({ teamId: props.team.id }),
-    headers: {
-      'Content-Type': 'application/json'
-    }
-  }).then( () => {
-    // success
-    setTeam(null);
-    props.onChange();
+interface Props {
+  team: inferQueryOutput<"viewer.teams.list">[number];
+  key: number;
+  onActionSelect: (text: string) => void;
+}
+
+export default function TeamListItem(props: Props) {
+  const { t } = useLocale();
+  const utils = trpc.useContext();
+  const team = props.team;
+
+  const acceptOrLeaveMutation = trpc.useMutation("viewer.teams.acceptOrLeave", {
+    onSuccess: () => {
+      utils.invalidateQueries(["viewer.teams.list"]);
+    },
   });
+  function acceptOrLeave(accept: boolean) {
+    acceptOrLeaveMutation.mutate({
+      teamId: team?.id as number,
+      accept,
+    });
+  }
+  const acceptInvite = () => acceptOrLeave(true);
+  const declineInvite = () => acceptOrLeave(false);
 
-  return (team && <li className="mb-2 mt-2 divide-y">
-    <div className="flex justify-between mb-2 mt-2">
-      <div>
-        <UsersIcon className="text-gray-400 group-hover:text-gray-500 flex-shrink-0 -mt-4 mr-2 h-6 w-6 inline"/>
-        <div className="inline-block -mt-1">
-          <span className="font-bold text-blue-700 text-sm">{props.team.name}</span>
-          <span className="text-xs text-gray-400 -mt-1 block capitalize">{props.team.role.toLowerCase()}</span>
+  const isOwner = props.team.role === MembershipRole.OWNER;
+  const isInvitee = !props.team.accepted;
+  const isAdmin = props.team.role === MembershipRole.OWNER || props.team.role === MembershipRole.ADMIN;
+
+  if (!team) return <></>;
+
+  const teamInfo = (
+    <div className="flex px-5 py-5">
+      <Avatar
+        size={9}
+        imageSrc={getPlaceholderAvatar(team?.logo, team?.name as string)}
+        alt="Team Logo"
+        className="rounded-full w-9 h-9 min-w-9 min-h-9"
+      />
+      <div className="inline-block ml-3">
+        <span className="text-sm font-bold text-neutral-700">{team.name}</span>
+        <span className="block text-xs text-gray-400">
+          {process.env.NEXT_PUBLIC_APP_URL}/team/{team.slug}
+        </span>
+      </div>
+    </div>
+  );
+
+  return (
+    <li className="divide-y">
+      <div
+        className={classNames(
+          "flex justify-between  items-center",
+          !isInvitee && "group hover:bg-neutral-50"
+        )}>
+        {!isInvitee ? (
+          <Link href={"/settings/teams/" + team.id}>
+            <a className="flex-grow text-sm truncate cursor-pointer" title={`${team.name}`}>
+              {teamInfo}
+            </a>
+          </Link>
+        ) : (
+          teamInfo
+        )}
+        <div className="px-5 py-5">
+          {isInvitee && (
+            <>
+              <Button type="button" color="secondary" onClick={declineInvite}>
+                {t("reject")}
+              </Button>
+              <Button type="button" color="primary" className="ml-2" onClick={acceptInvite}>
+                {t("accept")}
+              </Button>
+            </>
+          )}
+          {!isInvitee && (
+            <div className="flex space-x-2">
+              <TeamRole role={team.role as MembershipRole} />
+
+              <Tooltip content={t("copy_link_team")}>
+                <Button
+                  onClick={() => {
+                    navigator.clipboard.writeText(process.env.NEXT_PUBLIC_APP_URL + "/team/" + team.slug);
+                    showToast(t("link_copied"), "success");
+                  }}
+                  className="w-10 h-10 transition-none"
+                  size="icon"
+                  color="minimal"
+                  type="button">
+                  <LinkIcon className="w-5 h-5 group-hover:text-gray-600" />
+                </Button>
+              </Tooltip>
+              <Dropdown>
+                <DropdownMenuTrigger className="w-10 h-10 p-0 border border-transparent group text-neutral-400 hover:border-gray-200 ">
+                  <DotsHorizontalIcon className="w-5 h-5 group-hover:text-gray-800" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  {isAdmin && (
+                    <DropdownMenuItem>
+                      <Link href={"/settings/teams/" + team.id}>
+                        <a>
+                          <Button
+                            type="button"
+                            color="minimal"
+                            className="w-full font-normal"
+                            StartIcon={PencilIcon}>
+                            {t("edit_team")}
+                          </Button>
+                        </a>
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  {isAdmin && <DropdownMenuSeparator className="h-px bg-gray-200" />}
+                  <DropdownMenuItem>
+                    <Link href={`${process.env.NEXT_PUBLIC_APP_URL}/team/${team.slug}`} passHref={true}>
+                      <a target="_blank">
+                        <Button
+                          type="button"
+                          color="minimal"
+                          className="w-full font-normal"
+                          StartIcon={ExternalLinkIcon}>
+                          {" "}
+                          {t("preview_team")}
+                        </Button>
+                      </a>
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="h-px bg-gray-200" />
+                  {isOwner && (
+                    <DropdownMenuItem>
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                            }}
+                            color="warn"
+                            StartIcon={TrashIcon}
+                            className="w-full font-normal">
+                            {t("disband_team")}
+                          </Button>
+                        </DialogTrigger>
+                        <ConfirmationDialogContent
+                          variety="danger"
+                          title={t("disband_team")}
+                          confirmBtnText={t("confirm_disband_team")}
+                          onConfirm={() => props.onActionSelect("disband")}>
+                          {t("disband_team_confirmation_message")}
+                        </ConfirmationDialogContent>
+                      </Dialog>
+                    </DropdownMenuItem>
+                  )}
+
+                  {!isOwner && (
+                    <DropdownMenuItem>
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button
+                            type="button"
+                            color="warn"
+                            StartIcon={LogoutIcon}
+                            className="w-full"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                            }}>
+                            {t("leave_team")}
+                          </Button>
+                        </DialogTrigger>
+                        <ConfirmationDialogContent
+                          variety="danger"
+                          title={t("leave_team")}
+                          confirmBtnText={t("confirm_leave_team")}
+                          onConfirm={declineInvite}>
+                          {t("leave_team_confirmation_message")}
+                        </ConfirmationDialogContent>
+                      </Dialog>
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </Dropdown>
+            </div>
+          )}
         </div>
       </div>
-      {props.team.role === 'INVITEE' && <div>
-          <button className="btn-sm bg-transparent text-green-500 border border-green-500 px-3 py-1 rounded ml-2" onClick={acceptInvite}>Accept invitation</button>
-          <button className="btn-sm bg-transparent px-2 py-1 ml-1">
-            <TrashIcon className="h-6 w-6 inline text-gray-400 -mt-1" onClick={declineInvite} />
-          </button>
-      </div>}
-      {props.team.role === 'MEMBER' && <div>
-        <button onClick={declineInvite} className="btn-sm bg-transparent text-gray-400 border border-gray-400 px-3 py-1 rounded ml-2">Leave</button>
-      </div>}
-      {props.team.role === 'OWNER' && <div>
-        <Dropdown className="relative inline-block text-left">
-          <button className="btn-sm bg-transparent text-gray-400 px-3 py-1 rounded ml-2">
-            <CogIcon className="h-6 w-6 inline text-gray-400" />
-          </button>
-          <ul role="menu" className="z-10 origin-top-right absolute right-0 w-36 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none">
-            <li className="text-sm text-gray-700  hover:bg-gray-100 hover:text-gray-900" role="menuitem">
-              <a className="block px-4 py-2" onClick={() => props.onActionSelect('invite')}>Invite member(s)</a>
-            </li>
-            <li className="text-sm text-gray-700  hover:bg-gray-100 hover:text-gray-900" role="menuitem">
-              <a className="block px-4 py-2" onClick={() => props.onActionSelect('edit')}>Manage team</a>
-            </li>
-          </ul>
-        </Dropdown>
-      </div>}
-    </div>
-    {/*{props.team.userRole === 'Owner' && expanded && <div className="pt-2">
-      {props.team.members.length > 0 && <div>
-        <h2 className="text-lg font-medium text-gray-900 mb-1">Members</h2>
-        <table className="table-auto mb-2 w-full">
-          <tbody>
-            {props.team.members.map( (member) => <tr key={member.email}>
-              <td className="py-1 pl-2">Alex van Andel ({ member.email })</td>
-              <td>Owner</td>
-              <td className="text-right p-1">
-                  <button className="btn-sm text-xs bg-transparent text-red-400 border border-red-400 px-3 py-1 rounded ml-2"><UserRemoveIcon className="text-red-400 group-hover:text-gray-500 flex-shrink-0 -mt-1 mr-1 h-4 w-4 inline"/>Remove</button>
-              </td>
-            </tr>)}
-          </tbody>
-        </table>
-      </div>}
-      <button className="btn-sm bg-transparent text-gray-400 border border-gray-400 px-3 py-1 rounded"><UserAddIcon className="text-gray-400 group-hover:text-gray-500 flex-shrink-0 -mt-1 h-6 w-6 inline"/> Invite member</button>
-      <button className="btn-sm bg-transparent text-red-400 border border-red-400 px-3 py-1 rounded ml-2">Disband</button>
-    </div>}*/}
-  </li>);
+    </li>
+  );
 }

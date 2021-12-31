@@ -1,387 +1,559 @@
-import Head from 'next/head';
-import Link from 'next/link';
-import prisma from '../../lib/prisma';
-import Shell from '../../components/Shell';
-import {useEffect, useState} from 'react';
-import {getSession, useSession} from 'next-auth/client';
-import {CalendarIcon, CheckCircleIcon, ChevronRightIcon, PlusIcon, XCircleIcon} from '@heroicons/react/solid';
-import {InformationCircleIcon} from '@heroicons/react/outline';
-import {Switch} from '@headlessui/react'
+import { ChevronRightIcon, PencilAltIcon, SwitchHorizontalIcon, TrashIcon } from "@heroicons/react/outline";
+import { ClipboardIcon } from "@heroicons/react/solid";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@radix-ui/react-collapsible";
+import Image from "next/image";
+import React, { useState } from "react";
+import { Controller, useForm, useWatch } from "react-hook-form";
 
-export default function Home({ integrations }) {
-    const [session, loading] = useSession();
-    const [showAddModal, setShowAddModal] = useState(false);
-    const [showSelectCalendarModal, setShowSelectCalendarModal] = useState(false);
-    const [selectableCalendars, setSelectableCalendars] = useState([]);
+import { QueryCell } from "@lib/QueryCell";
+import classNames from "@lib/classNames";
+import { useLocale } from "@lib/hooks/useLocale";
+import showToast from "@lib/notification";
+import { inferQueryOutput, trpc } from "@lib/trpc";
+import { WEBHOOK_TRIGGER_EVENTS } from "@lib/webhooks/constants";
 
-    function toggleAddModal() {
-        setShowAddModal(!showAddModal);
-    }
+import { ClientSuspense } from "@components/ClientSuspense";
+import { Dialog, DialogContent, DialogFooter, DialogTrigger } from "@components/Dialog";
+import { List, ListItem, ListItemText, ListItemTitle } from "@components/List";
+import Loader from "@components/Loader";
+import Shell, { ShellSubHeading } from "@components/Shell";
+import { Tooltip } from "@components/Tooltip";
+import ConfirmationDialogContent from "@components/dialog/ConfirmationDialogContent";
+import { FieldsetLegend, Form, InputGroupBox, TextField } from "@components/form/fields";
+import { CalendarListContainer } from "@components/integrations/CalendarListContainer";
+import ConnectIntegration from "@components/integrations/ConnectIntegrations";
+import DisconnectIntegration from "@components/integrations/DisconnectIntegration";
+import IntegrationListItem from "@components/integrations/IntegrationListItem";
+import SubHeadingTitleWithConnections from "@components/integrations/SubHeadingTitleWithConnections";
+import { Alert } from "@components/ui/Alert";
+import Button from "@components/ui/Button";
+import Switch from "@components/ui/Switch";
 
-    function toggleShowCalendarModal() {
-        setShowSelectCalendarModal(!showSelectCalendarModal);
-    }
+type TWebhook = inferQueryOutput<"viewer.webhook.list">[number];
 
-    function loadCalendars() {
-        fetch('api/availability/calendar')
-          .then((response) => response.json())
-          .then(data => {
-              setSelectableCalendars(data)
-          });
-    }
+function WebhookListItem(props: { webhook: TWebhook; onEditWebhook: () => void }) {
+  const { t } = useLocale();
+  const utils = trpc.useContext();
+  const deleteWebhook = trpc.useMutation("viewer.webhook.delete", {
+    async onSuccess() {
+      await utils.invalidateQueries(["viewer.webhook.list"]);
+    },
+  });
 
-    function integrationHandler(type) {
-        fetch('/api/integrations/' + type.replace('_', '') + '/add')
-            .then((response) => response.json())
-            .then((data) => window.location.href = data.url);
-    }
-
-    function calendarSelectionHandler(calendar) {
-        return (selected) => {
-            let cals = [...selectableCalendars];
-            let i = cals.findIndex(c => c.externalId === calendar.externalId);
-            cals[i].selected = selected;
-            setSelectableCalendars(cals);
-            if (selected) {
-                fetch('api/availability/calendar', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(cals[i])
-                }).then((response) => response.json());
-            } else {
-                fetch('api/availability/calendar', {
-                    method: 'DELETE', headers: {
-                        'Content-Type': 'application/json'
-                    }, body: JSON.stringify(cals[i])
-                }).then((response) => response.json());
-            }
-        }
-    }
-
-    function getCalendarIntegrationImage(integrationType: string){
-        switch (integrationType) {
-            case "google_calendar": return "integrations/google-calendar.png";
-            case "office365_calendar": return "integrations/office-365.png";
-            default: return "";
-        }
-    }
-
-    function classNames(...classes) {
-        return classes.filter(Boolean).join(' ')
-    }
-
-    useEffect(loadCalendars, [integrations]);
-
-    if (loading) {
-        return <p className="text-gray-400">Loading...</p>;
-    }
-
-    return (
-        <div>
-            <Head>
-                <title>Integrations | Calendso</title>
-                <link rel="icon" href="/favicon.ico" />
-            </Head>
-
-            <Shell heading="Integrations" noPaddingBottom>
-                <div className="text-right py-2">
-                    <button onClick={toggleAddModal} type="button"
-                            className="px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                        Add new integration
-                    </button>
-                </div>
-                <div className="bg-white shadow overflow-hidden rounded-lg mb-8">
-                    {integrations.filter( (ig) => ig.credential ).length !== 0 ? <ul className="divide-y divide-gray-200">
-                        {integrations.filter(ig => ig.credential).map( (ig) => (<li>
-                            <Link href={"/integrations/" + ig.credential.id}>
-                                <a className="block hover:bg-gray-50">
-                                    <div className="flex items-center px-4 py-4 sm:px-6">
-                                        <div className="min-w-0 flex-1 flex items-center">
-                                            <div className="flex-shrink-0">
-                                                <img className="h-10 w-10 mr-2" src={ig.imageSrc} alt={ig.title} />
-                                            </div>
-                                            <div className="min-w-0 flex-1 px-4 md:grid md:grid-cols-2 md:gap-4">
-                                                <div>
-                                                    <p className="text-sm font-medium text-blue-600 truncate">{ig.title}</p>
-                                                    <p className="flex items-center text-sm text-gray-500">
-                                                        {ig.type.endsWith('_calendar') && <span className="truncate">Calendar Integration</span>}
-                                                        {ig.type.endsWith('_video') && <span className="truncate">Video Conferencing</span>}
-                                                    </p>
-                                                </div>
-                                                <div className="hidden md:block">
-                                                    {ig.credential.key && <p className="mt-2 flex items-center text text-gray-500">
-                                                        <CheckCircleIcon className="flex-shrink-0 mr-1.5 h-5 w-5 text-green-400" />
-                                                        Connected
-                                                    </p>}
-                                                    {!ig.credential.key && <p className="mt-3 flex items-center text text-gray-500">
-                                                        <XCircleIcon className="flex-shrink-0 mr-1.5 h-5 w-5 text-yellow-400" />
-                                                        Not connected
-                                                    </p>}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <ChevronRightIcon className="h-5 w-5 text-gray-400" />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </a>
-                            </Link>
-                        </li>))}
-                    </ul>
-                    :
-                    <div className="bg-white shadow rounded-lg">
-                        <div className="flex">
-                            <div className="py-9 pl-8">
-                                <InformationCircleIcon className="text-blue-600 w-16" />
-                            </div>
-                            <div className="py-5 sm:p-6">
-                                <h3 className="text-lg leading-6 font-medium text-gray-900">
-                                     You don't have any integrations added.
-                                </h3>
-                                <div className="mt-2 text-sm text-gray-500">
-                                    <p>
-                                        You currently do not have any integrations set up. Add your first integration to get started.
-                                    </p>
-                                </div>
-                                <div className="mt-3 text-sm">
-                                    <button onClick={toggleAddModal} className="font-medium text-blue-600 hover:text-blue-500"> Add your first integration <span aria-hidden="true">&rarr;</span></button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    }
-                </div>
-                {showAddModal &&
-                    <div className="fixed z-10 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-                    <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-                        {/* <!--
-                          Background overlay, show/hide based on modal state.
-
-                          Entering: "ease-out duration-300"
-                            From: "opacity-0"
-                            To: "opacity-100"
-                          Leaving: "ease-in duration-200"
-                            From: "opacity-100"
-                            To: "opacity-0"
-                        --> */}
-                        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
-                        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-                        {/* <!--
-                          Modal panel, show/hide based on modal state.
-
-                          Entering: "ease-out duration-300"
-                            From: "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-                            To: "opacity-100 translate-y-0 sm:scale-100"
-                          Leaving: "ease-in duration-200"
-                            From: "opacity-100 translate-y-0 sm:scale-100"
-                            To: "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-                        --> */}
-                        <div className="inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
-                            <div className="sm:flex sm:items-start">
-                                <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 sm:mx-0 sm:h-10 sm:w-10">
-                                    <PlusIcon className="h-6 w-6 text-blue-600" />
-                                </div>
-                                <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
-                                    <h3 className="text-lg leading-6 font-medium text-gray-900" id="modal-title">
-                                        Add a new integration
-                                    </h3>
-                                    <div>
-                                        <p className="text-sm text-gray-400">
-                                            Link a new integration to your account.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="my-4">
-                                <ul className="divide-y divide-gray-200">
-                                    {integrations.filter( (integration) => integration.installed ).map( (integration) => (<li className="flex py-4">
-                                        <div className="w-1/12 mr-4 pt-2">
-                                            <img className="h-8 w-8 mr-2" src={integration.imageSrc} alt={integration.title} />
-                                        </div>
-                                        <div className="w-10/12">
-                                            <h2 className="text-gray-800 font-medium">{ integration.title }</h2>
-                                            <p className="text-gray-400 text-sm">{ integration.description }</p>
-                                        </div>
-                                        <div className="w-2/12 text-right pt-2">
-                                            <button onClick={() => integrationHandler(integration.type)} className="font-medium text-blue-600 hover:text-blue-500">Add</button>
-                                        </div>
-                                    </li>))}
-                                </ul>
-                            </div>
-                            <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
-                                <button onClick={toggleAddModal} type="button" className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:w-auto sm:text-sm">
-                                    Close
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                }
-                <div className="bg-white shadow rounded-lg">
-                    <div className="px-4 py-5 sm:p-6">
-                        <h3 className="text-lg leading-6 font-medium text-gray-900">
-                            Select calendars
-                        </h3>
-                        <div className="mt-2 max-w-xl text-sm text-gray-500">
-                            <p>
-                               Select which calendars are checked for availability to prevent double bookings.
-                            </p>
-                        </div>
-                        <div className="mt-5">
-                            <button type="button" onClick={toggleShowCalendarModal} className="btn btn-primary">
-                                Select calendars
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                {showSelectCalendarModal &&
-                <div className="fixed z-10 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-                    <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-                        {/* <!--
-                          Background overlay, show/hide based on modal state.
-
-                          Entering: "ease-out duration-300"
-                            From: "opacity-0"
-                            To: "opacity-100"
-                          Leaving: "ease-in duration-200"
-                            From: "opacity-100"
-                            To: "opacity-0"
-                        --> */}
-                        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
-                        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-                        {/* <!--
-                          Modal panel, show/hide based on modal state.
-
-                          Entering: "ease-out duration-300"
-                            From: "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-                            To: "opacity-100 translate-y-0 sm:scale-100"
-                          Leaving: "ease-in duration-200"
-                            From: "opacity-100 translate-y-0 sm:scale-100"
-                            To: "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-                        --> */}
-                        <div className="inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
-                            <div className="sm:flex sm:items-start">
-                                <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 sm:mx-0 sm:h-10 sm:w-10">
-                                    <CalendarIcon className="h-6 w-6 text-blue-600" />
-                                </div>
-                                <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
-                                    <h3 className="text-lg leading-6 font-medium text-gray-900" id="modal-title">
-                                        Select calendars
-                                    </h3>
-                                    <div>
-                                        <p className="text-sm text-gray-400">
-                                            If no entry is selected, all calendars will be checked
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="my-4">
-                                <ul className="divide-y divide-gray-200">
-                                    {selectableCalendars.map( (calendar) => (<li className="flex py-4">
-                                        <div className="w-1/12 mr-4 pt-2">
-                                            <img className="h-8 w-8 mr-2" src={getCalendarIntegrationImage(calendar.integration)} alt={calendar.integration} />
-                                        </div>
-                                        <div className="w-10/12 pt-3">
-                                            <h2 className="text-gray-800 font-medium">{ calendar.name }</h2>
-                                        </div>
-                                        <div className="w-2/12 text-right pt-3">
-                                            <Switch
-                                              checked={calendar.selected}
-                                              onChange={calendarSelectionHandler(calendar)}
-                                              className={classNames(
-                                                calendar.selected ? 'bg-indigo-600' : 'bg-gray-200',
-                                                'relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
-                                              )}
-                                            >
-                                                <span className="sr-only">Select calendar</span>
-                                                <span
-                                                  aria-hidden="true"
-                                                  className={classNames(
-                                                    calendar.selected ? 'translate-x-5' : 'translate-x-0',
-                                                    'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200'
-                                                  )}
-                                                />
-                                            </Switch>
-                                        </div>
-                                    </li>))}
-                                </ul>
-                            </div>
-                            <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
-                                <button onClick={toggleShowCalendarModal} type="button" className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:w-auto sm:text-sm">
-                                    Close
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                }
-            </Shell>
+  return (
+    <ListItem className="flex w-full p-4 -mt-px">
+      <div className="flex justify-between w-full">
+        <div className="flex flex-col max-w-full truncate">
+          <div className="flex space-y-1">
+            <span
+              className={classNames(
+                "text-sm truncate",
+                props.webhook.active ? "text-neutral-700" : "text-neutral-200"
+              )}>
+              {props.webhook.subscriberUrl}
+            </span>
+          </div>
+          <div className="flex mt-2">
+            <span className="flex flex-col space-y-1 text-xs sm:space-y-0 sm:flex-row sm:space-x-2">
+              {props.webhook.eventTriggers.map((eventTrigger, ind) => (
+                <span
+                  key={ind}
+                  className={classNames(
+                    "px-1 text-xs rounded-sm w-max ",
+                    props.webhook.active ? "text-blue-700 bg-blue-100" : "text-blue-200 bg-blue-50"
+                  )}>
+                  {t(`${eventTrigger.toLowerCase()}`)}
+                </span>
+              ))}
+            </span>
+          </div>
         </div>
+        <div className="flex">
+          <Tooltip content={t("edit_webhook")}>
+            <Button
+              onClick={() => props.onEditWebhook()}
+              color="minimal"
+              size="icon"
+              StartIcon={PencilAltIcon}
+              className="self-center w-full p-2 ml-4"></Button>
+          </Tooltip>
+          <Dialog>
+            <Tooltip content={t("delete_webhook")}>
+              <DialogTrigger asChild>
+                <Button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                  color="minimal"
+                  size="icon"
+                  StartIcon={TrashIcon}
+                  className="self-center w-full p-2 ml-2"></Button>
+              </DialogTrigger>
+            </Tooltip>
+            <ConfirmationDialogContent
+              variety="danger"
+              title={t("delete_webhook")}
+              confirmBtnText={t("confirm_delete_webhook")}
+              cancelBtnText={t("cancel")}
+              onConfirm={() => deleteWebhook.mutate({ id: props.webhook.id })}>
+              {t("delete_webhook_confirmation_message")}
+            </ConfirmationDialogContent>
+          </Dialog>
+        </div>
+      </div>
+    </ListItem>
+  );
+}
+
+function WebhookTestDisclosure() {
+  const subscriberUrl: string = useWatch({ name: "subscriberUrl" });
+  const payloadTemplate = useWatch({ name: "payloadTemplate" }) || null;
+  const { t } = useLocale();
+  const [open, setOpen] = useState(false);
+  const mutation = trpc.useMutation("viewer.webhook.testTrigger", {
+    onError(err) {
+      showToast(err.message, "error");
+    },
+  });
+
+  return (
+    <Collapsible open={open} onOpenChange={() => setOpen(!open)}>
+      <CollapsibleTrigger type="button" className={"cursor-pointer flex w-full"}>
+        <ChevronRightIcon className={`${open ? "transform rotate-90" : ""} w-5 h-5 text-neutral-500`} />
+        <span className="text-sm font-medium text-gray-700">{t("webhook_test")}</span>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <InputGroupBox className="px-0 space-y-0 border-0">
+          <div className="flex justify-between p-2 bg-gray-50">
+            <h3 className="self-center text-gray-700">{t("webhook_response")}</h3>
+            <Button
+              StartIcon={SwitchHorizontalIcon}
+              type="button"
+              color="minimal"
+              disabled={mutation.isLoading}
+              onClick={() => mutation.mutate({ url: subscriberUrl, type: "PING", payloadTemplate })}>
+              {t("ping_test")}
+            </Button>
+          </div>
+          <div className="p-2 text-gray-500 border-8 border-gray-50">
+            {!mutation.data && <em>{t("no_data_yet")}</em>}
+            {mutation.status === "success" && (
+              <>
+                <div
+                  className={classNames(
+                    "px-2 py-1 w-max text-xs ml-auto",
+                    mutation.data.ok ? "text-green-500 bg-green-50" : "text-red-500 bg-red-50"
+                  )}>
+                  {mutation.data.ok ? t("success") : t("failed")}
+                </div>
+                <pre className="overflow-x-auto">{JSON.stringify(mutation.data, null, 4)}</pre>
+              </>
+            )}
+          </div>
+        </InputGroupBox>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function WebhookDialogForm(props: {
+  //
+  defaultValues?: TWebhook;
+  handleClose: () => void;
+}) {
+  const { t } = useLocale();
+  const utils = trpc.useContext();
+
+  const {
+    defaultValues = {
+      id: "",
+      eventTriggers: WEBHOOK_TRIGGER_EVENTS,
+      subscriberUrl: "",
+      active: true,
+      payloadTemplate: null,
+    } as Omit<TWebhook, "userId" | "createdAt">,
+  } = props;
+
+  const [useCustomPayloadTemplate, setUseCustomPayloadTemplate] = useState(!!defaultValues.payloadTemplate);
+
+  const form = useForm({
+    defaultValues,
+  });
+  return (
+    <Form
+      data-testid="WebhookDialogForm"
+      form={form}
+      handleSubmit={async (event) => {
+        if (!useCustomPayloadTemplate && event.payloadTemplate) {
+          event.payloadTemplate = null;
+        }
+        if (event.id) {
+          await utils.client.mutation("viewer.webhook.edit", event);
+          await utils.invalidateQueries(["viewer.webhook.list"]);
+          showToast(t("webhook_updated_successfully"), "success");
+        } else {
+          await utils.client.mutation("viewer.webhook.create", event);
+          await utils.invalidateQueries(["viewer.webhook.list"]);
+          showToast(t("webhook_created_successfully"), "success");
+        }
+        props.handleClose();
+      }}
+      className="space-y-4">
+      <input type="hidden" {...form.register("id")} />
+      <fieldset className="space-y-2">
+        <InputGroupBox className="border-0 bg-gray-50">
+          <Controller
+            control={form.control}
+            name="active"
+            render={({ field }) => (
+              <Switch
+                label={field.value ? t("webhook_enabled") : t("webhook_disabled")}
+                defaultChecked={field.value}
+                onCheckedChange={(isChecked) => {
+                  form.setValue("active", isChecked);
+                }}
+              />
+            )}
+          />
+        </InputGroupBox>
+      </fieldset>
+      <TextField label={t("subscriber_url")} {...form.register("subscriberUrl")} required type="url" />
+
+      <fieldset className="space-y-2">
+        <FieldsetLegend>{t("event_triggers")}</FieldsetLegend>
+        <InputGroupBox className="border-0 bg-gray-50">
+          {WEBHOOK_TRIGGER_EVENTS.map((key) => (
+            <Controller
+              key={key}
+              control={form.control}
+              name="eventTriggers"
+              render={({ field }) => (
+                <Switch
+                  label={t(key.toLowerCase())}
+                  defaultChecked={field.value.includes(key)}
+                  onCheckedChange={(isChecked) => {
+                    const value = field.value;
+                    const newValue = isChecked ? [...value, key] : value.filter((v) => v !== key);
+
+                    form.setValue("eventTriggers", newValue, {
+                      shouldDirty: true,
+                    });
+                  }}
+                />
+              )}
+            />
+          ))}
+        </InputGroupBox>
+      </fieldset>
+      <fieldset className="space-y-2">
+        <FieldsetLegend>{t("payload_template")}</FieldsetLegend>
+        <div className="space-x-3 text-sm">
+          <label>
+            <input
+              className="text-neutral-900 focus:ring-neutral-500"
+              type="radio"
+              name="useCustomPayloadTemplate"
+              onChange={(value) => setUseCustomPayloadTemplate(!value.target.checked)}
+              defaultChecked={!useCustomPayloadTemplate}
+            />{" "}
+            Default
+          </label>
+          <label>
+            <input
+              className="text-neutral-900 focus:ring-neutral-500"
+              onChange={(value) => setUseCustomPayloadTemplate(value.target.checked)}
+              name="useCustomPayloadTemplate"
+              type="radio"
+              defaultChecked={useCustomPayloadTemplate}
+            />{" "}
+            Custom
+          </label>
+        </div>
+        {useCustomPayloadTemplate && (
+          <textarea
+            {...form.register("payloadTemplate")}
+            className="block w-full font-mono border-gray-300 rounded-sm shadow-sm focus:ring-neutral-900 focus:border-neutral-900 sm:text-sm"
+            rows={5}
+            defaultValue={useCustomPayloadTemplate && (defaultValues.payloadTemplate || "")}></textarea>
+        )}
+      </fieldset>
+      <WebhookTestDisclosure />
+      <DialogFooter>
+        <Button type="button" color="secondary" onClick={props.handleClose} tabIndex={-1}>
+          {t("cancel")}
+        </Button>
+        <Button type="submit" loading={form.formState.isSubmitting}>
+          {t("save")}
+        </Button>
+      </DialogFooter>
+    </Form>
+  );
+}
+
+function WebhookListContainer() {
+  const { t } = useLocale();
+  const query = trpc.useQuery(["viewer.webhook.list"], { suspense: true });
+
+  const [newWebhookModal, setNewWebhookModal] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editing, setEditing] = useState<TWebhook | null>(null);
+  return (
+    <QueryCell
+      query={query}
+      success={({ data }) => (
+        <>
+          <ShellSubHeading className="mt-10" title={t("Webhooks")} subtitle={t("receive_cal_meeting_data")} />
+          <List>
+            <ListItem className={classNames("flex-col")}>
+              <div className={classNames("flex flex-1 space-x-2 w-full p-3 items-center")}>
+                <Image width={40} height={40} src="/integrations/webhooks.svg" alt="Webhooks" />
+                <div className="flex-grow pl-2 truncate">
+                  <ListItemTitle component="h3">Webhooks</ListItemTitle>
+                  <ListItemText component="p">{t("automation")}</ListItemText>
+                </div>
+                <div>
+                  <Button
+                    color="secondary"
+                    onClick={() => setNewWebhookModal(true)}
+                    data-testid="new_webhook">
+                    {t("new_webhook")}
+                  </Button>
+                </div>
+              </div>
+            </ListItem>
+          </List>
+
+          {data.length ? (
+            <List>
+              {data.map((item) => (
+                <WebhookListItem
+                  key={item.id}
+                  webhook={item}
+                  onEditWebhook={() => {
+                    setEditing(item);
+                    setEditModalOpen(true);
+                  }}
+                />
+              ))}
+            </List>
+          ) : null}
+
+          {/* New webhook dialog */}
+          <Dialog open={newWebhookModal} onOpenChange={(isOpen) => !isOpen && setNewWebhookModal(false)}>
+            <DialogContent>
+              <WebhookDialogForm handleClose={() => setNewWebhookModal(false)} />
+            </DialogContent>
+          </Dialog>
+          {/* Edit webhook dialog */}
+          <Dialog open={editModalOpen} onOpenChange={(isOpen) => !isOpen && setEditModalOpen(false)}>
+            <DialogContent>
+              {editing && (
+                <WebhookDialogForm
+                  key={editing.id}
+                  handleClose={() => setEditModalOpen(false)}
+                  defaultValues={editing}
+                />
+              )}
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
+    />
+  );
+}
+
+function IframeEmbedContainer() {
+  const { t } = useLocale();
+  // doesn't need suspense as it should already be loaded
+  const user = trpc.useQuery(["viewer.me"]).data;
+
+  const iframeTemplate = `<iframe src="${process.env.NEXT_PUBLIC_BASE_URL}/${user?.username}" frameborder="0" allowfullscreen></iframe>`;
+  const htmlTemplate = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${t(
+    "schedule_a_meeting"
+  )}</title><style>body {margin: 0;}iframe {height: calc(100vh - 4px);width: calc(100vw - 4px);box-sizing: border-box;}</style></head><body>${iframeTemplate}</body></html>`;
+
+  return (
+    <>
+      <ShellSubHeading title={t("iframe_embed")} subtitle={t("embed_calcom")} className="mt-10" />
+      <div className="lg:pb-8 lg:col-span-9">
+        <List>
+          <ListItem className={classNames("flex-col")}>
+            <div className={classNames("flex flex-1 space-x-2 w-full p-3 items-center")}>
+              <Image width={40} height={40} src="/integrations/embed.svg" alt="Embed" />
+              <div className="flex-grow pl-2 truncate">
+                <ListItemTitle component="h3">{t("standard_iframe")}</ListItemTitle>
+                <ListItemText component="p">{t("embed_your_calendar")}</ListItemText>
+              </div>
+              <div>
+                <input
+                  id="iframe"
+                  className="px-2 py-1 text-sm text-gray-500 focus:ring-black focus:border-brand"
+                  placeholder={t("loading")}
+                  defaultValue={iframeTemplate}
+                  readOnly
+                />
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(iframeTemplate);
+                    showToast("Copied to clipboard", "success");
+                  }}>
+                  <ClipboardIcon className="w-4 h-4 -mb-0.5 mr-2 text-gray-800" />
+                </button>
+              </div>
+            </div>
+          </ListItem>
+          <ListItem className={classNames("flex-col")}>
+            <div className={classNames("flex flex-1 space-x-2 w-full p-3 items-center")}>
+              <Image width={40} height={40} src="/integrations/embed.svg" alt="Embed" />
+              <div className="flex-grow pl-2 truncate">
+                <ListItemTitle component="h3">{t("responsive_fullscreen_iframe")}</ListItemTitle>
+                <ListItemText component="p">A fullscreen scheduling experience on your website</ListItemText>
+              </div>
+              <div>
+                <input
+                  id="fullscreen"
+                  className="px-2 py-1 text-sm text-gray-500 focus:ring-black focus:border-brand"
+                  placeholder={t("loading")}
+                  defaultValue={htmlTemplate}
+                  readOnly
+                />
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(htmlTemplate);
+                    showToast("Copied to clipboard", "success");
+                  }}>
+                  <ClipboardIcon className="w-4 h-4 -mb-0.5 mr-2 text-gray-800" />
+                </button>
+              </div>
+            </div>
+          </ListItem>
+        </List>
+        <div className="grid grid-cols-2 space-x-4">
+          <div>
+            <label htmlFor="iframe" className="block text-sm font-medium text-gray-700"></label>
+            <div className="mt-1"></div>
+          </div>
+          <div>
+            <label htmlFor="fullscreen" className="block text-sm font-medium text-gray-700"></label>
+            <div className="mt-1"></div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function ConnectOrDisconnectIntegrationButton(props: {
+  //
+  credentialIds: number[];
+  type: string;
+  installed: boolean;
+}) {
+  const { t } = useLocale();
+  const [credentialId] = props.credentialIds;
+  const utils = trpc.useContext();
+  const handleOpenChange = () => {
+    utils.invalidateQueries(["viewer.integrations"]);
+  };
+
+  if (credentialId) {
+    return (
+      <DisconnectIntegration
+        id={credentialId}
+        render={(btnProps) => (
+          <Button {...btnProps} color="warn" data-testid="integration-connection-button">
+            {t("disconnect")}
+          </Button>
+        )}
+        onOpenChange={handleOpenChange}
+      />
     );
+  }
+  if (!props.installed) {
+    return (
+      <div className="flex items-center truncate">
+        <Alert severity="warning" title={t("not_installed")} />
+      </div>
+    );
+  }
+  /** We don't need to "Connect", just show that it's installed */
+  if (props.type === "daily_video") {
+    return (
+      <div className="px-3 py-2 truncate">
+        <h3 className="text-sm font-medium text-gray-700">{t("installed")}</h3>
+      </div>
+    );
+  }
+  return (
+    <ConnectIntegration
+      type={props.type}
+      render={(btnProps) => (
+        <Button color="secondary" {...btnProps} data-testid="integration-connection-button">
+          {t("connect")}
+        </Button>
+      )}
+      onOpenChange={handleOpenChange}
+    />
+  );
 }
 
-const validJson = (jsonString: string) => {
-    try {
-        const o = JSON.parse(jsonString);
-        if (o && typeof o === "object") {
-            return o;
-        }
-    }
-    catch (e) {}
-    return false;
+function IntegrationsContainer() {
+  const { t } = useLocale();
+  const query = trpc.useQuery(["viewer.integrations"], { suspense: true });
+  return (
+    <QueryCell
+      query={query}
+      success={({ data }) => (
+        <>
+          <ShellSubHeading
+            title={
+              <SubHeadingTitleWithConnections
+                title={t("conferencing")}
+                numConnections={data.conferencing.numActive}
+              />
+            }
+          />
+          <List>
+            {data.conferencing.items.map((item) => (
+              <IntegrationListItem
+                key={item.title}
+                {...item}
+                actions={<ConnectOrDisconnectIntegrationButton {...item} />}
+              />
+            ))}
+          </List>
+
+          <ShellSubHeading
+            className="mt-10"
+            title={
+              <SubHeadingTitleWithConnections title={t("payment")} numConnections={data.payment.numActive} />
+            }
+          />
+          <List>
+            {data.payment.items.map((item) => (
+              <IntegrationListItem
+                key={item.title}
+                {...item}
+                actions={<ConnectOrDisconnectIntegrationButton {...item} />}
+              />
+            ))}
+          </List>
+        </>
+      )}></QueryCell>
+  );
 }
 
-export async function getServerSideProps(context) {
-    const session = await getSession(context);
-    if (!session) {
-        return { redirect: { permanent: false, destination: '/auth/login' } };
-    }
-    const user = await prisma.user.findFirst({
-        where: {
-            email: session.user.email,
-        },
-        select: {
-            id: true
-        }
-    });
+export default function IntegrationsPage() {
+  const { t } = useLocale();
 
-    const credentials = await prisma.credential.findMany({
-        where: {
-            userId: user.id,
-        },
-        select: {
-            id: true,
-            type: true,
-            key: true
-        }
-    });
-
-    const integrations = [ {
-        installed: !!(process.env.GOOGLE_API_CREDENTIALS && validJson(process.env.GOOGLE_API_CREDENTIALS)),
-        credential: credentials.find( (integration) => integration.type === "google_calendar" ) || null,
-        type: "google_calendar",
-        title: "Google Calendar",
-        imageSrc: "integrations/google-calendar.png",
-        description: "For personal and business calendars",
-    }, {
-        installed: !!(process.env.MS_GRAPH_CLIENT_ID && process.env.MS_GRAPH_CLIENT_SECRET),
-        type: "office365_calendar",
-        credential: credentials.find( (integration) => integration.type === "office365_calendar" ) || null,
-        title: "Office 365 / Outlook.com Calendar",
-        imageSrc: "integrations/office-365.png",
-        description: "For personal and business calendars",
-    }, {
-        installed: !!(process.env.ZOOM_CLIENT_ID && process.env.ZOOM_CLIENT_SECRET),
-        type: "zoom_video",
-        credential: credentials.find( (integration) => integration.type === "zoom_video" ) || null,
-        title: "Zoom",
-        imageSrc: "integrations/zoom.png",
-        description: "Video Conferencing",
-    } ];
-
-    return {
-      props: {integrations},
-    }
+  return (
+    <Shell heading={t("integrations")} subtitle={t("connect_your_favourite_apps")}>
+      <ClientSuspense fallback={<Loader />}>
+        <IntegrationsContainer />
+        <CalendarListContainer />
+        <WebhookListContainer />
+        <IframeEmbedContainer />
+      </ClientSuspense>
+    </Shell>
+  );
 }

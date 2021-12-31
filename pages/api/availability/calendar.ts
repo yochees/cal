@@ -1,69 +1,89 @@
-import type {NextApiRequest, NextApiResponse} from 'next';
-import {getSession} from 'next-auth/client';
-import prisma from '../../../lib/prisma';
-import {IntegrationCalendar, listCalendars} from "../../../lib/calendarClient";
+import type { NextApiRequest, NextApiResponse } from "next";
+
+import { getSession } from "@lib/auth";
+import notEmpty from "@lib/notEmpty";
+import prisma from "@lib/prisma";
+
+import getCalendarCredentials from "@server/integrations/getCalendarCredentials";
+import getConnectedCalendars from "@server/integrations/getConnectedCalendars";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-    const session = await getSession({req: req});
+  const session = await getSession({ req });
 
-    if (!session) {
-        res.status(401).json({message: "Not authenticated"});
-        return;
-    }
+  if (!session?.user?.id) {
+    res.status(401).json({ message: "Not authenticated" });
+    return;
+  }
 
-    const currentUser = await prisma.user.findFirst({
-        where: {
-            id: session.user.id,
+  const user = await prisma.user.findUnique({
+    where: {
+      id: session.user.id,
+    },
+    select: {
+      credentials: true,
+      timeZone: true,
+      id: true,
+      selectedCalendars: true,
+    },
+  });
+
+  if (!user) {
+    res.status(401).json({ message: "Not authenticated" });
+    return;
+  }
+
+  if (req.method === "POST") {
+    await prisma.selectedCalendar.upsert({
+      where: {
+        userId_integration_externalId: {
+          userId: user.id,
+          integration: req.body.integration,
+          externalId: req.body.externalId,
         },
-        select: {
-            credentials: true,
-            timeZone: true,
-            id: true
-        }
+      },
+      create: {
+        userId: user.id,
+        integration: req.body.integration,
+        externalId: req.body.externalId,
+      },
+      // already exists
+      update: {},
+    });
+    res.status(200).json({ message: "Calendar Selection Saved" });
+  }
+
+  if (req.method === "DELETE") {
+    await prisma.selectedCalendar.delete({
+      where: {
+        userId_integration_externalId: {
+          userId: user.id,
+          externalId: req.body.externalId,
+          integration: req.body.integration,
+        },
+      },
     });
 
-    if (req.method == "POST") {
-        await prisma.selectedCalendar.create({
-            data: {
-                user: {
-                    connect: {
-                        id: currentUser.id
-                    }
-                },
-                integration: req.body.integration,
-                externalId: req.body.externalId
-            }
-        });
-        res.status(200).json({message: "Calendar Selection Saved"});
+    res.status(200).json({ message: "Calendar Selection Saved" });
+  }
 
-    }
+  if (req.method === "GET") {
+    const selectedCalendarIds = await prisma.selectedCalendar.findMany({
+      where: {
+        userId: user.id,
+      },
+      select: {
+        externalId: true,
+      },
+    });
 
-    if (req.method == "DELETE") {
-        await prisma.selectedCalendar.delete({
-            where: {
-                userId_integration_externalId: {
-                    userId: currentUser.id,
-                    externalId: req.body.externalId,
-                    integration: req.body.integration
-                }
-            }
-        });
-
-        res.status(200).json({message: "Calendar Selection Saved"});
-    }
-
-    if (req.method == "GET") {
-        const selectedCalendarIds = await prisma.selectedCalendar.findMany({
-            where: {
-                userId: currentUser.id
-            },
-            select: {
-                externalId: true
-            }
-        });
-
-        const calendars: IntegrationCalendar[] = await listCalendars(currentUser.credentials);
-        const selectableCalendars = calendars.map(cal => {return {selected: selectedCalendarIds.findIndex(s => s.externalId === cal.externalId) > -1, ...cal}});
-        res.status(200).json(selectableCalendars);
-    }
+    // get user's credentials + their connected integrations
+    const calendarCredentials = getCalendarCredentials(user.credentials, user.id);
+    // get all the connected integrations' calendars (from third party)
+    const connectedCalendars = await getConnectedCalendars(calendarCredentials, user.selectedCalendars);
+    const calendars = connectedCalendars.flatMap((c) => c.calendars).filter(notEmpty);
+    const selectableCalendars = calendars.map((cal) => {
+      return { selected: selectedCalendarIds.findIndex((s) => s.externalId === cal.externalId) > -1, ...cal };
+    });
+    res.status(200).json(selectableCalendars);
+  }
 }

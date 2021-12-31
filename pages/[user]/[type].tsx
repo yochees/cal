@@ -1,261 +1,65 @@
-import { useEffect, useState } from "react";
-import { GetServerSideProps } from "next";
-import Head from "next/head";
-import Link from "next/link";
-import prisma from "../../lib/prisma";
-import { useRouter } from "next/router";
-import dayjs, { Dayjs } from "dayjs";
-import {
-  ClockIcon,
-  GlobeIcon,
-  ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-} from "@heroicons/react/solid";
-import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
-import utc from "dayjs/plugin/utc";
-import timezone from "dayjs/plugin/timezone";
-dayjs.extend(isSameOrBefore);
-dayjs.extend(utc);
-dayjs.extend(timezone);
+import { Prisma } from "@prisma/client";
+import { GetServerSidePropsContext } from "next";
 
-import { collectPageParameters, telemetryEventTypes, useTelemetry } from "../../lib/telemetry";
-import AvailableTimes from "../../components/booking/AvailableTimes";
-import TimeOptions from "../../components/booking/TimeOptions";
-import Avatar from "../../components/Avatar";
-import { timeZone } from "../../lib/clock";
+import { asStringOrNull } from "@lib/asStringOrNull";
+import { getWorkingHours } from "@lib/availability";
+import prisma from "@lib/prisma";
+import { inferSSRProps } from "@lib/types/inferSSRProps";
 
-export default function Type(props): Type {
-  // Get router variables
-  const router = useRouter();
-  const { rescheduleUid } = router.query;
+import AvailabilityPage from "@components/booking/pages/AvailabilityPage";
 
-  // Initialise state
-  const [selectedDate, setSelectedDate] = useState<Dayjs>();
-  const [selectedMonth, setSelectedMonth] = useState(dayjs().month());
-  const [isTimeOptionsOpen, setIsTimeOptionsOpen] = useState(false);
-  const [timeFormat, setTimeFormat] = useState("h:mma");
-  const telemetry = useTelemetry();
+import { ssrInit } from "@server/lib/ssr";
 
-  useEffect((): void => {
-    telemetry.withJitsu((jitsu) => jitsu.track(telemetryEventTypes.pageView, collectPageParameters()));
-  }, [telemetry]);
+export type AvailabilityPageProps = inferSSRProps<typeof getServerSideProps>;
 
-  // Handle month changes
-  const incrementMonth = () => {
-    setSelectedMonth(selectedMonth + 1);
-  };
-
-  const decrementMonth = () => {
-    setSelectedMonth(selectedMonth - 1);
-  };
-
-  // Set up calendar
-  const daysInMonth = dayjs().month(selectedMonth).daysInMonth();
-  const days = [];
-  for (let i = 1; i <= daysInMonth; i++) {
-    days.push(i);
-  }
-
-  // Create placeholder elements for empty days in first week
-  let weekdayOfFirst = dayjs().month(selectedMonth).date(1).day();
-  if (props.user.weekStart === "Monday") {
-    weekdayOfFirst -= 1;
-    if (weekdayOfFirst < 0) weekdayOfFirst = 6;
-  }
-  const emptyDays = Array(weekdayOfFirst)
-    .fill(null)
-    .map((day, i) => (
-      <div key={`e-${i}`} className={"text-center w-10 h-10 rounded-full mx-auto"}>
-        {null}
-      </div>
-    ));
-
-  const changeDate = (day): void => {
-    telemetry.withJitsu((jitsu) => jitsu.track(telemetryEventTypes.dateSelected, collectPageParameters()));
-    setSelectedDate(dayjs().month(selectedMonth).date(day));
-  };
-
-  // Combine placeholder days with actual days
-  const calendar = [
-    ...emptyDays,
-    ...days.map((day) => (
-      <button
-        key={day}
-        onClick={() => changeDate(day)}
-        disabled={
-          selectedMonth < parseInt(dayjs().format("MM")) && dayjs().month(selectedMonth).format("D") > day
-        }
-        className={
-          "text-center w-10 h-10 rounded-full mx-auto " +
-          (dayjs().isSameOrBefore(dayjs().date(day).month(selectedMonth))
-            ? "bg-blue-50 text-blue-600 font-medium"
-            : "text-gray-400 font-light") +
-          (dayjs(selectedDate).month(selectedMonth).format("D") == day
-            ? " bg-blue-600 text-white-important"
-            : "")
-        }>
-        {day}
-      </button>
-    )),
-  ];
-
-  const handleSelectTimeZone = (selectedTimeZone: string): void => {
-    if (selectedDate) {
-      setSelectedDate(selectedDate.tz(selectedTimeZone));
-    }
-  };
-
-  const handleToggle24hClock = (is24hClock: boolean): void => {
-    if (selectedDate) {
-      setTimeFormat(is24hClock ? "HH:mm" : "h:mma");
-    }
-  };
-
-  return (
-    <div>
-      <Head>
-        <title>
-          {rescheduleUid && "Reschedule"} {props.eventType.title} | {props.user.name || props.user.username} |
-          Calendso
-        </title>
-        <meta name="title" content={"Meet " + (props.user.name || props.user.username) + " via Calendso"} />
-        <meta name="description" content={props.eventType.description} />
-
-        <meta property="og:type" content="website" />
-        <meta property="og:url" content="https://calendso/" />
-        <meta
-          property="og:title"
-          content={"Meet " + (props.user.name || props.user.username) + " via Calendso"}
-        />
-        <meta property="og:description" content={props.eventType.description} />
-        <meta
-          property="og:image"
-          content={
-            "https://og-image-one-pi.vercel.app/" +
-            encodeURIComponent(
-              "Meet **" + (props.user.name || props.user.username) + "** <br>" + props.eventType.description
-            ).replace(/'/g, "%27") +
-            ".png?md=1&images=https%3A%2F%2Fcalendso.com%2Fcalendso-logo-white.svg&images=" +
-            encodeURIComponent(props.user.avatar)
-          }
-        />
-
-        <meta property="twitter:card" content="summary_large_image" />
-        <meta property="twitter:url" content="https://calendso/" />
-        <meta
-          property="twitter:title"
-          content={"Meet " + (props.user.name || props.user.username) + " via Calendso"}
-        />
-        <meta property="twitter:description" content={props.eventType.description} />
-        <meta
-          property="twitter:image"
-          content={
-            "https://og-image-one-pi.vercel.app/" +
-            encodeURIComponent(
-              "Meet **" + (props.user.name || props.user.username) + "** <br>" + props.eventType.description
-            ).replace(/'/g, "%27") +
-            ".png?md=1&images=https%3A%2F%2Fcalendso.com%2Fcalendso-logo-white.svg&images=" +
-            encodeURIComponent(props.user.avatar)
-          }
-        />
-      </Head>
-      <main
-        className={
-          "mx-auto my-24 transition-max-width ease-in-out duration-500 " +
-          (selectedDate ? "max-w-6xl" : "max-w-3xl")
-        }>
-        <div className="bg-white shadow rounded-lg">
-          <div className="sm:flex px-4 py-5 sm:p-4">
-            <div className={"pr-8 sm:border-r " + (selectedDate ? "sm:w-1/3" : "sm:w-1/2")}>
-              <Avatar user={props.user} className="w-16 h-16 rounded-full mb-4" />
-              <h2 className="font-medium text-gray-500">{props.user.name}</h2>
-              <h1 className="text-3xl font-semibold text-gray-800 mb-4">{props.eventType.title}</h1>
-              <p className="text-gray-500 mb-1 px-2 py-1 -ml-2">
-                <ClockIcon className="inline-block w-4 h-4 mr-1 -mt-1" />
-                {props.eventType.length} minutes
-              </p>
-              <button
-                onClick={() => setIsTimeOptionsOpen(!isTimeOptionsOpen)}
-                className="text-gray-500 mb-1 px-2 py-1 -ml-2">
-                <GlobeIcon className="inline-block w-4 h-4 mr-1 -mt-1" />
-                {timeZone()}
-                <ChevronDownIcon className="inline-block w-4 h-4 ml-1 -mt-1" />
-              </button>
-              {isTimeOptionsOpen && (
-                <TimeOptions
-                  onSelectTimeZone={handleSelectTimeZone}
-                  onToggle24hClock={handleToggle24hClock}
-                />
-              )}
-              <p className="text-gray-600 mt-3 mb-8">{props.eventType.description}</p>
-            </div>
-            <div
-              className={"mt-8 sm:mt-0 " + (selectedDate ? "sm:w-1/3 border-r sm:px-4" : "sm:w-1/2 sm:pl-4")}>
-              <div className="flex text-gray-600 font-light text-xl mb-4 ml-2">
-                <span className="w-1/2">{dayjs().month(selectedMonth).format("MMMM YYYY")}</span>
-                <div className="w-1/2 text-right">
-                  <button
-                    onClick={decrementMonth}
-                    className={"mr-4 " + (selectedMonth < parseInt(dayjs().format("MM")) && "text-gray-400")}
-                    disabled={selectedMonth < parseInt(dayjs().format("MM"))}>
-                    <ChevronLeftIcon className="w-5 h-5" />
-                  </button>
-                  <button onClick={incrementMonth}>
-                    <ChevronRightIcon className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-              <div className="grid grid-cols-7 gap-y-4 text-center">
-                {props.user.weekStart !== "Monday" ? (
-                  <div className="uppercase text-gray-400 text-xs tracking-widest">Sun</div>
-                ) : null}
-                <div className="uppercase text-gray-400 text-xs tracking-widest">Mon</div>
-                <div className="uppercase text-gray-400 text-xs tracking-widest">Tue</div>
-                <div className="uppercase text-gray-400 text-xs tracking-widest">Wed</div>
-                <div className="uppercase text-gray-400 text-xs tracking-widest">Thu</div>
-                <div className="uppercase text-gray-400 text-xs tracking-widest">Fri</div>
-                <div className="uppercase text-gray-400 text-xs tracking-widest">Sat</div>
-                {props.user.weekStart === "Monday" ? (
-                  <div className="uppercase text-gray-400 text-xs tracking-widest">Sun</div>
-                ) : null}
-                {calendar}
-              </div>
-            </div>
-            {selectedDate && (
-              <AvailableTimes
-                timeFormat={timeFormat}
-                user={props.user}
-                eventType={props.eventType}
-                date={selectedDate}
-              />
-            )}
-          </div>
-        </div>
-        {!props.user.hideBranding && (
-          <div className="text-xs text-right pt-1">
-            <Link href="https://calendso.com">
-              <a style={{ color: "#104D86" }} className="opacity-50 hover:opacity-100">
-                powered by{" "}
-                <img
-                  style={{ top: -2 }}
-                  className="w-auto inline h-3 relative"
-                  src="/calendso-logo-word.svg"
-                  alt="Calendso Logo"
-                />
-              </a>
-            </Link>
-          </div>
-        )}
-      </main>
-    </div>
-  );
+export default function Type(props: AvailabilityPageProps) {
+  return <AvailabilityPage {...props} />;
 }
 
-export const getServerSideProps: GetServerSideProps = async (context) => {
-  const user = await prisma.user.findFirst({
+export const getServerSideProps = async (context: GetServerSidePropsContext) => {
+  const ssr = await ssrInit(context);
+  // get query params and typecast them to string
+  // (would be even better to assert them instead of typecasting)
+  const userParam = asStringOrNull(context.query.user);
+  const typeParam = asStringOrNull(context.query.type);
+  const dateParam = asStringOrNull(context.query.date);
+
+  if (!userParam || !typeParam) {
+    throw new Error(`File is not named [type]/[user]`);
+  }
+
+  const eventTypeSelect = Prisma.validator<Prisma.EventTypeSelect>()({
+    id: true,
+    title: true,
+    availability: true,
+    description: true,
+    length: true,
+    price: true,
+    currency: true,
+    periodType: true,
+    periodStartDate: true,
+    periodEndDate: true,
+    periodDays: true,
+    periodCountCalendarDays: true,
+    schedulingType: true,
+    minimumBookingNotice: true,
+    timeZone: true,
+    slotInterval: true,
+    users: {
+      select: {
+        avatar: true,
+        name: true,
+        username: true,
+        hideBranding: true,
+        plan: true,
+        timeZone: true,
+      },
+    },
+  });
+
+  const user = await prisma.user.findUnique({
     where: {
-      username: context.query.user.toLowerCase(),
+      username: userParam.toLowerCase(),
     },
     select: {
       id: true,
@@ -264,12 +68,28 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
       email: true,
       bio: true,
       avatar: true,
-      eventTypes: true,
       startTime: true,
-      timeZone: true,
       endTime: true,
+      timeZone: true,
       weekStart: true,
+      availability: true,
       hideBranding: true,
+      brandColor: true,
+      theme: true,
+      plan: true,
+      eventTypes: {
+        where: {
+          AND: [
+            {
+              slug: typeParam,
+            },
+            {
+              teamId: null,
+            },
+          ],
+        },
+        select: eventTypeSelect,
+      },
     },
   });
 
@@ -279,31 +99,97 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     };
   }
 
-  const eventType = await prisma.eventType.findFirst({
-    where: {
-      userId: user.id,
-      slug: {
-        equals: context.query.type,
+  if (user.eventTypes.length !== 1) {
+    const eventTypeBackwardsCompat = await prisma.eventType.findFirst({
+      where: {
+        AND: [
+          {
+            userId: user.id,
+          },
+          {
+            slug: typeParam,
+          },
+        ],
       },
-    },
-    select: {
-      id: true,
-      title: true,
-      description: true,
-      length: true,
-    },
+      select: eventTypeSelect,
+    });
+    if (!eventTypeBackwardsCompat) {
+      return {
+        notFound: true,
+      };
+    }
+    eventTypeBackwardsCompat.users.push({
+      avatar: user.avatar,
+      name: user.name,
+      username: user.username,
+      hideBranding: user.hideBranding,
+      plan: user.plan,
+      timeZone: user.timeZone,
+    });
+    user.eventTypes.push(eventTypeBackwardsCompat);
+  }
+
+  const [eventType] = user.eventTypes;
+
+  // check this is the first event
+
+  // TEMPORARILY disabled because of a bug during event create - during which users were able
+  // to create event types >n1.
+  /*if (user.plan === "FREE") {
+    const firstEventType = await prisma.eventType.findFirst({
+      where: {
+        OR: [
+          {
+            userId: user.id,
+          },
+          {
+            users: {
+              some: {
+                id: user.id,
+              },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+      },
+    });
+    if (firstEventType?.id !== eventType.id) {
+      return {
+        notFound: true,
+      } as const;
+    }
+  }*/
+
+  const eventTypeObject = Object.assign({}, eventType, {
+    periodStartDate: eventType.periodStartDate?.toString() ?? null,
+    periodEndDate: eventType.periodEndDate?.toString() ?? null,
   });
 
-  if (!eventType) {
-    return {
-      notFound: true,
-    };
-  }
+  const workingHours = getWorkingHours(
+    {
+      timeZone: eventType.timeZone || user.timeZone,
+    },
+    eventType.availability.length ? eventType.availability : user.availability
+  );
+
+  eventTypeObject.availability = [];
 
   return {
     props: {
-      user,
-      eventType,
+      profile: {
+        name: user.name,
+        image: user.avatar,
+        slug: user.username,
+        theme: user.theme,
+        weekStart: user.weekStart,
+        brandColor: user.brandColor,
+      },
+      date: dateParam,
+      eventType: eventTypeObject,
+      workingHours,
+      trpcState: ssr.dehydrate(),
     },
   };
 };

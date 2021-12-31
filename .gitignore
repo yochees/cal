@@ -7,9 +7,14 @@
 /node_modules
 /.pnp
 .pnp.js
+/.yarn
 
 # testing
 /coverage
+.nyc_output
+playwright/videos
+playwright/screenshots
+playwright/artifacts
 
 # next.js
 /.next/
@@ -32,9 +37,22 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+.env.*
 
 # vercel
 .vercel
 
 # Webstorm
 .idea
+
+### VisualStudioCode template
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# Local History for Visual Studio Code
+.history/
+

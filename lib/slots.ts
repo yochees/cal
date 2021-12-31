@@ -1,94 +1,70 @@
-const dayjs = require("dayjs");
+import dayjs, { Dayjs } from "dayjs";
+import isBetween from "dayjs/plugin/isBetween";
+import isToday from "dayjs/plugin/isToday";
+import utc from "dayjs/plugin/utc";
 
-const isToday = require("dayjs/plugin/isToday");
-const utc = require("dayjs/plugin/utc");
-const timezone = require("dayjs/plugin/timezone");
+import { getWorkingHours } from "./availability";
+import { WorkingHours } from "./types/schedule";
 
 dayjs.extend(isToday);
 dayjs.extend(utc);
-dayjs.extend(timezone);
+dayjs.extend(isBetween);
 
-const getMinutesFromMidnight = (date) => {
-  return date.hour() * 60 + date.minute();
+export type GetSlots = {
+  inviteeDate: Dayjs;
+  frequency: number;
+  workingHours: WorkingHours[];
+  minimumBookingNotice: number;
 };
 
-const getSlots = ({
-  calendarTimeZone,
-  eventLength,
-  selectedTimeZone,
-  selectedDate,
-  dayStartTime,
-  dayEndTime
-}) => {
+const getMinuteOffset = (date: Dayjs, step: number) => {
+  // Diffs the current time with the given date and iff same day; (handled by 1440) - return difference; otherwise 0
+  const minuteOffset = Math.min(date.diff(dayjs.utc().startOf("day"), "minute"), 1440) % 1440;
+  // round down to nearest step
+  return Math.ceil(minuteOffset / step) * step;
+};
 
-  if(!selectedDate) return []
-  
-  const lowerBound = selectedDate.tz(selectedTimeZone).startOf("day");
-
-  // Simple case, same timezone
-  if (calendarTimeZone === selectedTimeZone) {
-    const slots = [];
-    const now = dayjs();
-    for (
-      let minutes = dayStartTime;
-      minutes <= dayEndTime - eventLength;
-      minutes += parseInt(eventLength, 10)
-    ) {
-      const slot = lowerBound.add(minutes, "minutes");
-      if (slot > now) {
-        slots.push(slot);
-      }
-    }
-    return slots;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const getSlots = ({ inviteeDate, frequency, minimumBookingNotice, workingHours }: GetSlots) => {
+  // current date in invitee tz
+  const startDate = dayjs().add(minimumBookingNotice, "minute");
+  // checks if the start date is in the past
+  if (inviteeDate.isBefore(startDate, "day")) {
+    return [];
   }
 
-  const upperBound = selectedDate.tz(selectedTimeZone).endOf("day");
+  const localWorkingHours = getWorkingHours(
+    { utcOffset: -inviteeDate.utcOffset() },
+    workingHours.map((schedule) => ({
+      days: schedule.days,
+      startTime: dayjs.utc().startOf("day").add(schedule.startTime, "minute"),
+      endTime: dayjs.utc().startOf("day").add(schedule.endTime, "minute"),
+    }))
+  ).filter((hours) => hours.days.includes(inviteeDate.day()));
 
-  // We need to start generating slots from the start of the calendarTimeZone day
-  const startDateTime = lowerBound
-    .tz(calendarTimeZone)
-    .startOf("day")
-    .add(dayStartTime, "minutes");
-
-  let phase = 0;
-  if (startDateTime < lowerBound) {
-    // Getting minutes of the first event in the day of the chooser
-    const diff = lowerBound.diff(startDateTime, "minutes");
-
-    // finding first event
-    phase = diff + eventLength - (diff % eventLength);
-  }
-
-  // We can stop as soon as the selectedTimeZone day ends
-  const endDateTime = upperBound
-    .tz(calendarTimeZone)
-    .subtract(eventLength, "minutes");
-
-  const maxMinutes = endDateTime.diff(startDateTime, "minutes");
-
-  const slots = [];
-  const now = dayjs();
-  for (
-    let minutes = phase;
-    minutes <= maxMinutes;
-    minutes += parseInt(eventLength, 10)
-  ) {
-    const slot = startDateTime.add(minutes, "minutes");
-
-    const minutesFromMidnight = getMinutesFromMidnight(slot);
-
-    if (
-      minutesFromMidnight < dayStartTime ||
-      minutesFromMidnight > dayEndTime - eventLength ||
-      slot < now
-    ) {
+  const slots: Dayjs[] = [];
+  for (let minutes = getMinuteOffset(inviteeDate, frequency); minutes < 1440; minutes += frequency) {
+    const slot = dayjs(inviteeDate).startOf("day").add(minutes, "minute");
+    // check if slot happened already
+    if (slot.isBefore(startDate)) {
       continue;
     }
-
-    slots.push(slot.tz(selectedTimeZone));
+    // add slots to available slots if it is found to be between the start and end time of the checked working hours.
+    if (
+      localWorkingHours.some((hours) =>
+        slot.isBetween(
+          inviteeDate.startOf("day").add(hours.startTime, "minute"),
+          inviteeDate.startOf("day").add(hours.endTime, "minute"),
+          null,
+          "[)"
+        )
+      )
+    ) {
+      slots.push(slot);
+    }
   }
 
   return slots;
 };
 
-export default getSlots
+export default getSlots;

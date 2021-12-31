@@ -1,42 +1,46 @@
-import {useEffect, useState} from "react";
+import showToast from "@lib/notification";
+import { trpc, inferQueryOutput } from "@lib/trpc";
+
 import TeamListItem from "./TeamListItem";
-import EditTeamModal from "./EditTeamModal";
-import MemberInvitationModal from "./MemberInvitationModal";
 
-export default function TeamList(props) {
+interface Props {
+  teams: inferQueryOutput<"viewer.teams.list">;
+}
 
-  const [ showMemberInvitationModal, setShowMemberInvitationModal ] = useState(false);
-  const [ showEditTeamModal, setShowEditTeamModal ] = useState(false);
-  const [ team, setTeam ] = useState(null);
+export default function TeamList(props: Props) {
+  const utils = trpc.useContext();
 
-  const selectAction = (action: string, team: any) => {
-    setTeam(team);
+  function selectAction(action: string, teamId: number) {
     switch (action) {
-      case 'edit':
-        setShowEditTeamModal(true);
-        break;
-      case 'invite':
-        setShowMemberInvitationModal(true);
+      case "disband":
+        deleteTeam(teamId);
         break;
     }
-  };
+  }
 
-  return (<div>
-    <ul className="border px-2 mb-2 rounded divide-y divide-gray-200">
-      {props.teams.map(
-        (team: any) => <TeamListItem onChange={props.onChange} key={team.id} team={team} onActionSelect={
-          (action: string) => selectAction(action, team)
-        }></TeamListItem>
-      )}
-    </ul>
-    {showEditTeamModal && <EditTeamModal team={team} onExit={() => {
-      props.onChange();
-      setShowEditTeamModal(false);
-    }}></EditTeamModal>}
-    {showMemberInvitationModal &&
-      <MemberInvitationModal
-        team={team}
-        onExit={() => setShowMemberInvitationModal(false)}></MemberInvitationModal>
-    }
-  </div>);
+  const deleteTeamMutation = trpc.useMutation("viewer.teams.delete", {
+    async onSuccess() {
+      await utils.invalidateQueries(["viewer.teams.list"]);
+    },
+    async onError(err) {
+      showToast(err.message, "error");
+    },
+  });
+
+  function deleteTeam(teamId: number) {
+    deleteTeamMutation.mutate({ teamId });
+  }
+
+  return (
+    <div>
+      <ul className="mb-2 bg-white border divide-y rounded divide-neutral-200">
+        {props.teams.map((team) => (
+          <TeamListItem
+            key={team?.id as number}
+            team={team}
+            onActionSelect={(action: string) => selectAction(action, team?.id as number)}></TeamListItem>
+        ))}
+      </ul>
+    </div>
+  );
 }
